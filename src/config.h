@@ -1,8 +1,8 @@
 #pragma once
 
 // ─── Wi-Fi ────────────────────────────────────────────────────
-#define WIFI_SSID        "YOUR_WIFI_SSID"
-#define WIFI_PASSWORD    "YOUR_WIFI_PASSWORD"
+#define WIFI_SSID        "network"
+#define WIFI_PASSWORD    "password"
 #define WIFI_TIMEOUT_MS  15000
 
 // ─── Сеть ─────────────────────────────────────────────────────
@@ -34,3 +34,4 @@
   {"name":"Deep House",    "url":"http://stream.laut.fm/deephouse"},
   {"name":"ChillOut Zone", "url":"http://stream.laut.fm/chillout"}
 ])"
+
