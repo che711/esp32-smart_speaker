@@ -1,42 +1,70 @@
-# patch_audio.py — автопатч ESP32-audioI2S для Arduino ESP32 core 2.x
-# Запускается автоматически через extra_scripts = pre:patch_audio.py
-# SCons-скрипт: Import("env") — это не обычный Python, а PlatformIO/SCons API
+# patch_audio.py — полный патч ESP32-audioI2S для pioarduino IDF 5.3
+# Исправляет все известные несовместимости без смены версии библиотеки
 
 Import("env")
-import os
+import os, re
 
 base = os.path.join(".pio", "libdeps", env["PIOENV"], "ESP32-audioI2S", "src")
 
-patches = [
-    # 1. <span> требует C++20, недоступен в старом тулчейне
+def patch_file(path, replacements):
+    if not os.path.isfile(path):
+        print(f"[patch] SKIP (not found): {path}")
+        return
+    with open(path, "r") as f:
+        src = f.read()
+    changed = False
+    for old, new in replacements:
+        if old in src and new not in src:
+            src = src.replace(old, new, 1)
+            changed = True
+    if changed:
+        with open(path, "w") as f:
+            f.write(src)
+        print(f"[patch] OK: {os.path.basename(path)}")
+    else:
+        print(f"[patch] already patched: {os.path.basename(path)}")
+
+# ── 1. psram_unique_ptr.hpp ────────────────────────────────────
+patch_file(os.path.join(base, "psram_unique_ptr.hpp"), [
+    # C++20 <span> — не доступен в C++17
     (
-        os.path.join(base, "psram_unique_ptr.hpp"),
         "#include <span>",
         "#if __cplusplus >= 202002L\n#include <span>\n#endif"
     ),
-    # 2. NetworkClient.h появился только в Arduino ESP32 core 3.x
+    # C++20 <cstdint> включается неправильно в C-файлах
     (
-        os.path.join(base, "Audio.h"),
+        "#include <cstdint>",
+        "#ifdef __cplusplus\n#include <cstdint>\n#else\n#include <stdint.h>\n#endif"
+    ),
+])
+
+# ── 2. Audio.h ─────────────────────────────────────────────────
+patch_file(os.path.join(base, "Audio.h"), [
+    # NetworkClient.h появился только в Arduino ESP32 core 3.x
+    (
         "#include <NetworkClient.h>",
         "#include <WiFiClient.h>\ntypedef WiFiClient NetworkClient;"
     ),
-    # 3. NetworkClientSecure.h — аналогично
+    # NetworkClientSecure.h аналогично
     (
-        os.path.join(base, "Audio.h"),
         "#include <NetworkClientSecure.h>",
         "#include <WiFiClientSecure.h>\ntypedef WiFiClientSecure NetworkClientSecure;"
     ),
-]
+])
 
-for path, old, new in patches:
-    if not os.path.isfile(path):
-        continue
-    with open(path, "r") as f:
-        src = f.read()
-    # Применяем только если старый текст есть и новый ещё не применён
-    if old in src and new.split("\n")[0] not in src:
-        with open(path, "w") as f:
-            f.write(src.replace(old, new, 1))
-        print(f"[patch_audio] {os.path.basename(path)}: патч применён")
-    elif old not in src:
-        print(f"[patch_audio] {os.path.basename(path)}: уже пропатчен или не нужно")
+# ── 3. Audio.cpp ───────────────────────────────────────────────
+patch_file(os.path.join(base, "Audio.cpp"), [
+    # allow_pd добавлен в i2s_chan_config_t только в IDF 5.4+
+    (
+        "m_i2s_chan_cfg.allow_pd = false;",
+        "// m_i2s_chan_cfg.allow_pd = false;  // IDF 5.4+ only, patched"
+    ),
+    # dsps_biquad_sf32 — SIMD версия, недоступна в IDF 5.3 libs
+    # заменяем на стандартную dsps_biquad_f32
+    (
+        "dsps_biquad_sf32(",
+        "dsps_biquad_f32("
+    ),
+])
+
+print("[patch] all done")
