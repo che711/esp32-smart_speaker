@@ -1,110 +1,84 @@
 #pragma once
 #include <ArduinoJson.h>
 #include <Preferences.h>
+#include <vector>
 #include "config.h"
 
-struct Station {
-    String name;
-    String url;
-};
+struct Station { String name, url; };
 
-class StationManager {
+class Stations {
 public:
-    std::vector<Station> stations;
-    int currentIndex = 0;
+    std::vector<Station> list;
+    int current = 0;
 
     void begin() {
         load();
-        if (stations.empty()) {
-            loadDefaults();
-            save();
-        }
+        if (list.empty()) { defaults(); save(); }
     }
 
-    void loadDefaults() {
-        stations.clear();
+    // ── CRUD ───────────────────────────────────────────────────
+    bool add(const String& name, const String& url) {
+        if (list.size() >= 24) return false;
+        list.push_back({ name, url });
+        save(); return true;
+    }
+
+    bool remove(int i) {
+        if (i < 0 || i >= (int)list.size()) return false;
+        list.erase(list.begin() + i);
+        if (current >= (int)list.size()) current = 0;
+        save(); return true;
+    }
+
+    // ── Навигация ──────────────────────────────────────────────
+    Station* get(int i) {
+        if (i < 0 || i >= (int)list.size()) return nullptr;
+        current = i; return &list[i];
+    }
+    Station* next() { return get((current + 1) % list.size()); }
+    Station* prev() { return get((current - 1 + list.size()) % list.size()); }
+    Station* cur()  { return list.empty() ? nullptr : &list[current]; }
+
+    // ── Сериализация ───────────────────────────────────────────
+    String toJson() {
+        JsonDocument doc;
+        JsonArray arr = doc.to<JsonArray>();
+        for (int i = 0; i < (int)list.size(); i++) {
+            JsonObject o = arr.add<JsonObject>();
+            o["i"] = i; o["name"] = list[i].name; o["url"] = list[i].url;
+        }
+        String s; serializeJson(doc, s); return s;
+    }
+
+private:
+    void defaults() {
+        list.clear();
         JsonDocument doc;
         deserializeJson(doc, DEFAULT_STATIONS_JSON);
-        for (JsonObject obj : doc.as<JsonArray>()) {
-            stations.push_back({ obj["name"].as<String>(), obj["url"].as<String>() });
-        }
+        for (JsonObject o : doc.as<JsonArray>())
+            list.push_back({ o["name"].as<String>(), o["url"].as<String>() });
     }
 
     void load() {
-        Preferences prefs;
-        prefs.begin("stations", true);
-        String json = prefs.getString("list", "");
-        prefs.end();
+        Preferences p; p.begin("st", true);
+        String json = p.getString("v", ""); p.end();
         if (json.isEmpty()) return;
-
-        stations.clear();
+        list.clear();
         JsonDocument doc;
-        if (deserializeJson(doc, json) == DeserializationError::Ok) {
-            for (JsonObject obj : doc.as<JsonArray>()) {
-                stations.push_back({ obj["name"].as<String>(), obj["url"].as<String>() });
-            }
-        }
+        if (!deserializeJson(doc, json))
+            for (JsonObject o : doc.as<JsonArray>())
+                list.push_back({ o["name"].as<String>(), o["url"].as<String>() });
     }
 
     void save() {
         JsonDocument doc;
         JsonArray arr = doc.to<JsonArray>();
-        for (auto& s : stations) {
-            JsonObject obj = arr.add<JsonObject>();
-            obj["name"] = s.name;
-            obj["url"]  = s.url;
+        for (auto& s : list) {
+            JsonObject o = arr.add<JsonObject>();
+            o["name"] = s.name; o["url"] = s.url;
         }
-        String json;
-        serializeJson(doc, json);
-        Preferences prefs;
-        prefs.begin("stations", false);
-        prefs.putString("list", json);
-        prefs.end();
-    }
-
-    String toJson() {
-        JsonDocument doc;
-        JsonArray arr = doc.to<JsonArray>();
-        for (int i = 0; i < (int)stations.size(); i++) {
-            JsonObject obj = arr.add<JsonObject>();
-            obj["index"] = i;
-            obj["name"]  = stations[i].name;
-            obj["url"]   = stations[i].url;
-        }
-        String out;
-        serializeJson(doc, out);
-        return out;
-    }
-
-    bool addStation(const String& name, const String& url) {
-        if (stations.size() >= 20) return false;
-        stations.push_back({ name, url });
-        save();
-        return true;
-    }
-
-    bool removeStation(int index) {
-        if (index < 0 || index >= (int)stations.size()) return false;
-        stations.erase(stations.begin() + index);
-        if (currentIndex >= (int)stations.size()) currentIndex = 0;
-        save();
-        return true;
-    }
-
-    Station* current() {
-        if (stations.empty()) return nullptr;
-        return &stations[currentIndex];
-    }
-
-    Station* next() {
-        if (stations.empty()) return nullptr;
-        currentIndex = (currentIndex + 1) % stations.size();
-        return current();
-    }
-
-    Station* prev() {
-        if (stations.empty()) return nullptr;
-        currentIndex = (currentIndex - 1 + stations.size()) % stations.size();
-        return current();
+        String json; serializeJson(doc, json);
+        Preferences p; p.begin("st", false);
+        p.putString("v", json); p.end();
     }
 };
