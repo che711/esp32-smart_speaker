@@ -3,120 +3,127 @@
 #include <Wire.h>
 #include "config.h"
 
-class DisplayManager {
-public:
-    Adafruit_SSD1306 oled;
+// Режим отображения
+enum DispMode { D_BOOT, D_CONNECTING, D_RADIO, D_FILE, D_UPLOAD };
 
-    DisplayManager() : oled(OLED_WIDTH, OLED_HEIGHT, &Wire, OLED_RESET) {}
+class Display {
+public:
+    Adafruit_SSD1306 oled{ OLED_W, OLED_H, &Wire, OLED_RESET };
 
     bool begin() {
         Wire.begin(I2C_SDA, I2C_SCL);
-        if (!oled.begin(SSD1306_SWITCHCAPVCC, OLED_ADDRESS)) {
-            return false;
-        }
-        oled.clearDisplay();
+        if (!oled.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR)) return false;
         oled.setTextColor(SSD1306_WHITE);
-        showBoot();
-        return true;
+        boot(); return true;
     }
 
-    void showBoot() {
-        oled.clearDisplay();
-        oled.setTextSize(1);
-        oled.setCursor(28, 20);
-        oled.println("Smart Speaker");
-        oled.setCursor(38, 34);
-        oled.println("Loading...");
-        oled.display();
+    // ── Системные экраны ───────────────────────────────────────
+    void boot() {
+        clear();
+        center("Smart Speaker", 1, 14);
+        center("booting...", 1, 30);
+        show();
     }
 
-    void showConnecting(const char* ssid) {
-        oled.clearDisplay();
+    void connecting(const char* ssid) {
+        clear();
+        small("Connecting to:", 0, 0);
+        small(ssid, 0, 12);
+        small("Please wait...", 0, 28);
+        show();
+    }
+
+    void ready(const char* ip) {
+        clear();
+        small("Ready!", 0, 0);
+        oled.drawLine(0, 11, 127, 11, SSD1306_WHITE);
+        small("IP:", 0, 15);
+        small(ip, 20, 15);
+        small("http://speaker.local", 0, 27);
+        show();
+    }
+
+    void wifiError() {
+        clear();
+        center("WiFi Error", 1, 20);
+        center("Check config.h", 1, 36);
+        show();
+    }
+
+    // ── Основной экран (радио / файл) ──────────────────────────
+    void playing(const String& line1, const String& line2,
+                 int vol, bool isPlaying, DispMode mode) {
+        clear();
+
+        // Строка режима
         oled.setTextSize(1);
         oled.setCursor(0, 0);
-        oled.println("Connecting WiFi...");
-        oled.setCursor(0, 16);
-        oled.print(ssid);
-        oled.display();
-    }
+        if (mode == D_FILE)  oled.print(isPlaying ? "\x10 FILE" : "|| FILE");
+        else                 oled.print(isPlaying ? "\x10 RADIO" : "|| RADIO");
+        oled.drawLine(0, 11, 127, 11, SSD1306_WHITE);
 
-    void showIP(const char* ip, const char* mdns) {
-        oled.clearDisplay();
-        oled.setTextSize(1);
-        oled.setCursor(0, 0);
-        oled.println("WiFi connected!");
-        oled.setCursor(0, 16);
-        oled.print("IP: ");
-        oled.println(ip);
-        oled.setCursor(0, 30);
-        oled.print(mdns);
-        oled.println(".local");
-        oled.display();
-    }
+        // Название станции/файла
+        small(truncate(line1, 21).c_str(), 0, 14);
 
-    // Основной экран воспроизведения
-    void showPlaying(const String& station, const String& track, int volume, bool playing) {
-        oled.clearDisplay();
-
-        // Статус воспроизведения
-        oled.setTextSize(1);
-        oled.setCursor(0, 0);
-        oled.print(playing ? "\x10 " : "|| ");    // ▶ или ||
-
-        // Название станции (обрезать если длинное)
-        String st = station;
-        if (st.length() > 16) st = st.substring(0, 15) + "~";
-        oled.print(st);
-
-        // Разделитель
-        oled.drawLine(0, 12, 127, 12, SSD1306_WHITE);
-
-        // Название трека (с переносом)
-        oled.setTextSize(1);
-        String tr = track;
-        if (tr.length() > 40) tr = tr.substring(0, 39) + "...";
-        oled.setCursor(0, 16);
-        // Простой перенос по 21 символу
-        if (tr.length() > 21) {
-            oled.println(tr.substring(0, 21));
-            oled.setCursor(0, 26);
-            oled.println(tr.substring(21, 42));
-        } else {
-            oled.println(tr);
+        // Название трека / ICY метаданные
+        if (line2.length() > 0) {
+            String part1 = truncate(line2, 21);
+            String part2 = line2.length() > 21 ? truncate(line2.substring(21), 21) : "";
+            small(part1.c_str(), 0, 25);
+            if (part2.length()) small(part2.c_str(), 0, 35);
         }
 
-        // Разделитель низа
-        oled.drawLine(0, 51, 127, 51, SSD1306_WHITE);
-
-        // Громкость — полоска
-        oled.setCursor(0, 55);
-        oled.print("VOL ");
-        int barLen = map(volume, 0, VOLUME_MAX, 0, 90);
-        oled.fillRect(26, 56, barLen, 6, SSD1306_WHITE);
-        oled.drawRect(26, 56, 90, 6, SSD1306_WHITE);
-
-        oled.display();
+        // Полоска громкости
+        oled.drawLine(0, 52, 127, 52, SSD1306_WHITE);
+        oled.setCursor(0, 56);
+        oled.print("VOL");
+        oled.fillRect(22, 57, map(vol, 0, VOLUME_MAX, 0, 100), 5, SSD1306_WHITE);
+        oled.drawRect(22, 57, 100, 5, SSD1306_WHITE);
+        show();
     }
 
-    void showError(const char* msg) {
-        oled.clearDisplay();
-        oled.setTextSize(1);
-        oled.setCursor(0, 0);
-        oled.println("Error:");
-        oled.setCursor(0, 16);
-        oled.println(msg);
-        oled.display();
+    // ── Загрузка файла ─────────────────────────────────────────
+    void uploading(const char* name, int pct) {
+        clear();
+        small("Uploading:", 0, 0);
+        oled.drawLine(0, 11, 127, 11, SSD1306_WHITE);
+        small(truncate(String(name), 21).c_str(), 0, 14);
+
+        // Прогресс-бар
+        oled.drawRect(0, 32, 128, 12, SSD1306_WHITE);
+        oled.fillRect(2, 34, map(pct, 0, 100, 0, 124), 8, SSD1306_WHITE);
+
+        char buf[8]; snprintf(buf, sizeof(buf), "%d%%", pct);
+        center(buf, 1, 50);
+        show();
     }
 
-    void showMessage(const char* line1, const char* line2 = "") {
-        oled.clearDisplay();
+    void message(const char* l1, const char* l2 = "") {
+        clear();
+        center(l1, 1, 20);
+        if (strlen(l2)) center(l2, 1, 36);
+        show();
+    }
+
+private:
+    void clear() { oled.clearDisplay(); }
+    void show()  { oled.display(); }
+
+    void small(const char* txt, int x, int y) {
         oled.setTextSize(1);
-        oled.setCursor(0, 20);
-        oled.println(line1);
-        if (strlen(line2) > 0) {
-            oled.setCursor(0, 34);
-            oled.println(line2);
-        }
-        oled.display();
+        oled.setCursor(x, y);
+        oled.print(txt);
+    }
+
+    void center(const char* txt, int size, int y) {
+        oled.setTextSize(size);
+        int w = strlen(txt) * 6 * size;
+        oled.setCursor(max(0, (128 - w) / 2), y);
+        oled.print(txt);
+    }
+
+    String truncate(const String& s, int maxLen) {
+        if ((int)s.length() <= maxLen) return s;
+        return s.substring(0, maxLen - 1) + "~";
     }
 };
