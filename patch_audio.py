@@ -54,13 +54,11 @@ patch_file(os.path.join(base, "Audio.h"), [
 
 # ── 3. Audio.cpp ───────────────────────────────────────────────
 patch_file(os.path.join(base, "Audio.cpp"), [
-    # allow_pd добавлен в i2s_chan_config_t только в IDF 5.4+
     (
         "m_i2s_chan_cfg.allow_pd = false;",
         "// m_i2s_chan_cfg.allow_pd = false;  // IDF 5.4+ only, patched"
     ),
-    # dsps_biquad_sf32 — SIMD версия, недоступна в IDF 5.3 libs
-    # заменяем на стандартную dsps_biquad_f32
+
     (
         "dsps_biquad_sf32(",
         "dsps_biquad_f32("
